@@ -11,10 +11,7 @@ from timm.data.transforms import str_to_pil_interp
 from .cached_image_folder import CachedImageFolder
 from .samplers import SubsetRandomSampler
 
-from datasets import load_dataset
-from PIL import Image
-from torchvision.transforms import ToTensor
-
+from datasets import concatenate_datasets, Dataset
 
 def build_loader(config):
     config.defrost()
@@ -85,8 +82,10 @@ def build_dataset(is_train, config):
         # else:
         #     root = os.path.join(config.DATA.DATA_PATH, prefix)
         #     dataset = datasets.ImageFolder(root, transform=transform)
-        dataset = load_dataset('imagenet-1k', split='train', use_auth_token=True) if is_train else \
-            load_dataset('imagenet-1k', split='validation', use_auth_token=True)
+        # dataset = load_dataset('imagenet-1k', split='train', use_auth_token=True) if is_train else \
+            # load_dataset('imagenet-1k', split='validation', use_auth_token=True)
+        dataset = concatenate_datasets([Dataset.from_file(f"../imagenet-1k/imagenet-1k-train-{i:05d}-of-00257.arrow") for i in range(257)]) if is_train else \
+            concatenate_datasets([Dataset.from_file(f"../imagenet-1k/imagenet-1k-validation-{i:05d}-of-00013.arrow",) for i in range(13)])
         def data_transform(data):
             return {"image": torch.stack([transform(image.convert("RGB")) for image in data["image"]]),
                     "label": torch.LongTensor(data["label"])}

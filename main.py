@@ -49,8 +49,8 @@ def parse_option():
     parser.add_argument('--accumulation-steps', type=int, help="gradient accumulation steps")
     parser.add_argument('--use-checkpoint', action='store_true',
                         help="whether to use gradient checkpointing to save memory")
-    parser.add_argument('--amp-opt-level', type=str, default='O1', choices=['O0', 'O1', 'O2'],
-                        help='mixed precision opt level, if O0, no amp is used')
+    parser.add_argument('--amp', type=bool, default=True,
+                        help='whether to use mixed precision')
     parser.add_argument('--output', default='output', type=str, metavar='PATH',
                         help='root of output folder, the full path is <output>/<model_name>/<tag> (default: output)')
     parser.add_argument('--tag', help='tag of experiment')
@@ -168,7 +168,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
         if config.TRAIN.ACCUMULATION_STEPS > 1:
             loss = criterion(outputs, targets)
             loss = loss / config.TRAIN.ACCUMULATION_STEPS
-            if config.AMP_OPT_LEVEL != "O0":
+            if config.AMP:
                 if loss_scaler is not None:
                     loss_scaler(
                         loss, optimizer,
@@ -196,7 +196,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
         else:
             loss = criterion(outputs, targets)
             optimizer.zero_grad()
-            if config.AMP_OPT_LEVEL != "O0":
+            if config.AMP:
                 if loss_scaler is not None:
                     loss_scaler(
                         loss, optimizer,
@@ -205,8 +205,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
                         create_graph=hasattr(optimizer, 'is_second_order') and optimizer.is_second_order)
                     grad_norm = get_grad_norm(model.parameters())
                 else:
-                    with amp.scale_loss(loss, optimizer) as scaled_loss:
-                        scaled_loss.backward()
+                    loss.backward()
                     if config.TRAIN.CLIP_GRAD:
                         grad_norm = torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), config.TRAIN.CLIP_GRAD)
                     else:
