@@ -6,10 +6,14 @@ from torchvision import datasets, transforms
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.data import Mixup
 from timm.data import create_transform
-from timm.data.transforms import _pil_interp
+from timm.data.transforms import str_to_pil_interp
 
 from .cached_image_folder import CachedImageFolder
 from .samplers import SubsetRandomSampler
+
+from datasets import load_dataset
+from PIL import Image
+from torchvision.transforms import ToTensor
 
 
 def build_loader(config):
@@ -68,19 +72,25 @@ def build_loader(config):
 def build_dataset(is_train, config):
     transform = build_transform(is_train, config)
     if config.DATA.DATASET == 'imagenet':
-        prefix = 'train' if is_train else 'val'
-        if config.DATA.ZIP_MODE:
-            ann_file = prefix + "_map.txt"
-            prefix = prefix + ".zip@/"
-            dataset = CachedImageFolder(config.DATA.DATA_PATH, ann_file, prefix, transform,
-                                        cache_mode=config.DATA.CACHE_MODE if is_train else 'part')
-        elif config.DATA.CACHE_MODE == 'part':
-             print('in part', config.DATA.DATA_PATH)
-             dataset = CachedImageFolder(os.path.join(config.DATA.DATA_PATH, 'train') if is_train else os.path.join(config.DATA.DATA_PATH, 'val'), "", "", transform,
-                                        cache_mode=config.DATA.CACHE_MODE if is_train else 'part')
-        else:
-            root = os.path.join(config.DATA.DATA_PATH, prefix)
-            dataset = datasets.ImageFolder(root, transform=transform)
+        # prefix = 'train' if is_train else 'val'
+        # if config.DATA.ZIP_MODE:
+        #     ann_file = prefix + "_map.txt"
+        #     prefix = prefix + ".zip@/"
+        #     dataset = CachedImageFolder(config.DATA.DATA_PATH, ann_file, prefix, transform,
+        #                                 cache_mode=config.DATA.CACHE_MODE if is_train else 'part')
+        # elif config.DATA.CACHE_MODE == 'part':
+        #      print('in part', config.DATA.DATA_PATH)
+        #      dataset = CachedImageFolder(os.path.join(config.DATA.DATA_PATH, 'train') if is_train else os.path.join(config.DATA.DATA_PATH, 'val'), "", "", transform,
+        #                                 cache_mode=config.DATA.CACHE_MODE if is_train else 'part')
+        # else:
+        #     root = os.path.join(config.DATA.DATA_PATH, prefix)
+        #     dataset = datasets.ImageFolder(root, transform=transform)
+        dataset = load_dataset('imagenet-1k', split='train', use_auth_token=True) if is_train else \
+            load_dataset('imagenet-1k', split='validation', use_auth_token=True)
+        def data_transform(data):
+            return {"image": torch.stack([transform(image.convert("RGB")) for image in data["image"]]),
+                    "label": torch.LongTensor(data["label"])}
+        dataset.set_transform(data_transform)
         nb_classes = 1000
     else:
         raise NotImplementedError("We only support ImageNet Now.")
@@ -113,14 +123,14 @@ def build_transform(is_train, config):
         if config.TEST.CROP:
             size = int((256 / 224) * config.DATA.IMG_SIZE)
             t.append(
-                transforms.Resize(size, interpolation=_pil_interp(config.DATA.INTERPOLATION)),
+                transforms.Resize(size, interpolation=str_to_pil_interp(config.DATA.INTERPOLATION)),
                 # to maintain same ratio w.r.t. 224 images
             )
             t.append(transforms.CenterCrop(config.DATA.IMG_SIZE))
         else:
             t.append(
                 transforms.Resize((config.DATA.IMG_SIZE, config.DATA.IMG_SIZE),
-                                  interpolation=_pil_interp(config.DATA.INTERPOLATION))
+                                  interpolation=str_to_pil_interp(config.DATA.INTERPOLATION))
             )
 
     t.append(transforms.ToTensor())
