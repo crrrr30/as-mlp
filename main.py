@@ -313,7 +313,7 @@ def throughput(data_loader, model, logger):
 if __name__ == '__main__':
     _, config = parse_option()
 
-    if config.AMP_OPT_LEVEL != "O0":
+    if config.AMP:
         assert amp is not None, "amp not installed!"
 
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
