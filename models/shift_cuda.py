@@ -208,6 +208,3 @@ def torch_shift(x, shift_size, dim):
     x_cat = torch.narrow(x_cat, 2, pad, H)
     x_cat = torch.narrow(x_cat, 3, pad, W)
     return x_cat
-
-
-
