@@ -5,7 +5,7 @@ import torch.distributed as dist
 
 try:
     # noinspection PyUnresolvedReferences
-    from apex import amp
+    from torch.cuda import amp
 except ImportError:
     amp = None
 
@@ -44,8 +44,8 @@ def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler,
                   'max_accuracy': max_accuracy,
                   'epoch': epoch,
                   'config': config}
-    if config.AMP:
-        save_state['amp'] = amp.state_dict()
+    # if config.AMP:
+    #     save_state['amp'] = amp.state_dict()
 
     save_path = os.path.join(config.OUTPUT, f'ckpt_epoch_{epoch}.pth')
     logger.info(f"{save_path} saving......")
