@@ -149,6 +149,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
 
     num_steps = len(data_loader)
     batch_time = AverageMeter()
+    data_time = AverageMeter()
     loss_meter = AverageMeter()
     norm_meter = AverageMeter()
 
@@ -158,6 +159,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
         samples, targets = data["image"], data["label"]
         samples = samples.cuda(non_blocking=True)
         targets = targets.cuda(non_blocking=True)
+        data = time.time()
 
         if mixup_fn is not None:
             samples, targets = mixup_fn(samples, targets)
@@ -224,6 +226,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
         loss_meter.update(loss.item(), targets.size(0))
         norm_meter.update(grad_norm)
         batch_time.update(time.time() - end)
+        data_time.update(data - end)
         end = time.time()
 
         if idx % config.PRINT_FREQ == 0:
@@ -234,6 +237,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
                 f'Train: [{epoch}/{config.TRAIN.EPOCHS}][{idx}/{num_steps}]\t'
                 f'eta {datetime.timedelta(seconds=int(etas))} lr {lr:.6f}\t'
                 f'time {batch_time.val:.4f} ({batch_time.avg:.4f})\t'
+                f'datatime {data_time.val:.4f} ({data_time.avg:.4f})\t'
                 f'loss {loss_meter.val:.4f} ({loss_meter.avg:.4f})\t'
                 f'grad_norm {norm_meter.val:.4f} ({norm_meter.avg:.4f})\t'
                 f'mem {memory_used:.0f}MB')
