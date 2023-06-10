@@ -31,7 +31,7 @@ def build_loader(config):
         sampler_train = SubsetRandomSampler(indices)
     else:
         sampler_train = torch.utils.data.DistributedSampler(
-            dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+            dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=False
         )
 
     indices = np.arange(dist.get_rank(), len(dataset_val), dist.get_world_size())
@@ -84,7 +84,7 @@ def build_dataset(is_train, config):
         #     dataset = datasets.ImageFolder(root, transform=transform)
         # dataset = load_dataset('imagenet-1k', split='train', use_auth_token=True) if is_train else \
             # load_dataset('imagenet-1k', split='validation', use_auth_token=True)
-        dataset = concatenate_datasets([Dataset.from_file(f"../imagenet-1k/imagenet-1k-train-{i:05d}-of-00257.arrow") for i in range(257)]) if is_train else \
+        dataset = concatenate_datasets([Dataset.from_file(f"../imagenet-1k/imagenet-1k-train-{i:05d}-of-00257.arrow") for i in range(257)]).shuffle() if is_train else \
             concatenate_datasets([Dataset.from_file(f"../imagenet-1k/imagenet-1k-validation-{i:05d}-of-00013.arrow",) for i in range(13)])
         def data_transform(data):
             return {"image": torch.stack([transform(image.convert("RGB")) for image in data["image"]]),
