@@ -12,7 +12,6 @@ from timm.data.random_erasing import RandomErasing
 from timm.data import create_transform
 from timm.data.transforms import str_to_pil_interp
 
-from .cached_image_folder import CachedImageFolder
 from .samplers import SubsetRandomSampler
 
 from datasets import concatenate_datasets, Dataset

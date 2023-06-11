@@ -155,7 +155,6 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
     for idx, (samples, targets) in enumerate(data_loader):
         samples = samples.cuda(non_blocking=True)
         targets = targets.cuda(non_blocking=True)
-        print(config.LOCAL_RANK, targets)
         data = time.time()
 
         if mixup_fn is not None:
