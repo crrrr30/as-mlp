@@ -13,6 +13,45 @@ from .samplers import SubsetRandomSampler
 
 from datasets import concatenate_datasets, Dataset
 
+
+# From ConvMixer
+def fast_collate(batch):
+    """ A fast collation function optimized for uint8 images (np array or torch) and int64 targets (labels)"""
+    if isinstance(batch[0], dict):
+        batch = [(b["image"], b["label"]) for b in batch]
+    assert isinstance(batch[0], tuple)
+    batch_size = len(batch)
+    if isinstance(batch[0][0], tuple):
+        # This branch 'deinterleaves' and flattens tuples of input tensors into one tensor ordered by position
+        # such that all tuple of position n will end up in a torch.split(tensor, batch_size) in nth position
+        inner_tuple_size = len(batch[0][0])
+        flattened_batch_size = batch_size * inner_tuple_size
+        targets = torch.zeros(flattened_batch_size, dtype=torch.int64)
+        tensor = torch.zeros((flattened_batch_size, *batch[0][0][0].shape), dtype=torch.uint8)
+        for i in range(batch_size):
+            assert len(batch[i][0]) == inner_tuple_size  # all input tensor tuples must be same length
+            for j in range(inner_tuple_size):
+                targets[i + j * batch_size] = batch[i][1]
+                tensor[i + j * batch_size] += torch.from_numpy(batch[i][0][j])
+        return tensor, targets
+    elif isinstance(batch[0][0], np.ndarray):
+        targets = torch.tensor([b[1] for b in batch], dtype=torch.int64)
+        assert len(targets) == batch_size
+        tensor = torch.zeros((batch_size, *batch[0][0].shape), dtype=torch.uint8)
+        for i in range(batch_size):
+            tensor[i] += torch.from_numpy(batch[i][0])
+        return tensor, targets
+    elif isinstance(batch[0][0], torch.Tensor):
+        targets = torch.tensor([b[1] for b in batch], dtype=torch.int64)
+        assert len(targets) == batch_size
+        tensor = torch.zeros((batch_size, *batch[0][0].shape), dtype=torch.uint8)
+        for i in range(batch_size):
+            tensor[i].copy_(batch[i][0])
+        return tensor, targets
+    else:
+        assert False
+        
+
 def build_loader(config):
     config.defrost()
     dataset_train, config.MODEL.NUM_CLASSES = build_dataset(is_train=True, config=config)
@@ -39,6 +78,7 @@ def build_loader(config):
 
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
+        collate_fn=fast_collate,
         batch_size=config.DATA.BATCH_SIZE,
         num_workers=config.DATA.NUM_WORKERS,
         pin_memory=config.DATA.PIN_MEMORY,
@@ -69,27 +109,12 @@ def build_loader(config):
 def build_dataset(is_train, config):
     transform = build_transform(is_train, config)
     if config.DATA.DATASET == 'imagenet':
-        # prefix = 'train' if is_train else 'val'
-        # if config.DATA.ZIP_MODE:
-        #     ann_file = prefix + "_map.txt"
-        #     prefix = prefix + ".zip@/"
-        #     dataset = CachedImageFolder(config.DATA.DATA_PATH, ann_file, prefix, transform,
-        #                                 cache_mode=config.DATA.CACHE_MODE if is_train else 'part')
-        # elif config.DATA.CACHE_MODE == 'part':
-        #      print('in part', config.DATA.DATA_PATH)
-        #      dataset = CachedImageFolder(os.path.join(config.DATA.DATA_PATH, 'train') if is_train else os.path.join(config.DATA.DATA_PATH, 'val'), "", "", transform,
-        #                                 cache_mode=config.DATA.CACHE_MODE if is_train else 'part')
-        # else:
-        #     root = os.path.join(config.DATA.DATA_PATH, prefix)
-        #     dataset = datasets.ImageFolder(root, transform=transform)
-        # dataset = load_dataset('imagenet-1k', split='train', use_auth_token=True) if is_train else \
-            # load_dataset('imagenet-1k', split='validation', use_auth_token=True)
         dataset = concatenate_datasets([Dataset.from_file(f"../imagenet-1k/imagenet-1k-train-{i:05d}-of-00257.arrow") for i in range(257)]).shuffle() if is_train else \
             concatenate_datasets([Dataset.from_file(f"../imagenet-1k/imagenet-1k-validation-{i:05d}-of-00013.arrow",) for i in range(13)])
-        def data_transform(data):
-            return {"image": torch.stack([transform(image.convert("RGB")) for image in data["image"]]),
-                    "label": torch.LongTensor(data["label"])}
-        dataset.set_transform(data_transform)
+        def transforms(examples):
+            examples["image"] = [transform(img.convert("RGB")) for img in examples["image"]]
+            return examples
+        dataset.set_transform(transforms)
         nb_classes = 1000
     else:
         raise NotImplementedError("We only support ImageNet Now.")
