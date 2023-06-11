@@ -6,7 +6,8 @@ import numpy as np
 import torch.distributed as dist
 from torchvision import transforms
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-from timm.data import Mixup, FastCollateMixup
+from timm.data import Mixup
+from timm.data.mixup import *
 from timm.data.random_erasing import RandomErasing
 from timm.data import create_transform
 from timm.data.transforms import str_to_pil_interp
@@ -17,44 +18,105 @@ from .samplers import SubsetRandomSampler
 from datasets import concatenate_datasets, Dataset
 
 
-# From ConvMixer
-def fast_collate(batch):
-    """ A fast collation function optimized for uint8 images (np array or torch) and int64 targets (labels)"""
-    if isinstance(batch[0], dict):
-        batch = [(b["image"], b["label"]) for b in batch]
-    assert isinstance(batch[0], tuple)
-    batch_size = len(batch)
-    if isinstance(batch[0][0], tuple):
-        # This branch 'deinterleaves' and flattens tuples of input tensors into one tensor ordered by position
-        # such that all tuple of position n will end up in a torch.split(tensor, batch_size) in nth position
-        inner_tuple_size = len(batch[0][0])
-        flattened_batch_size = batch_size * inner_tuple_size
-        targets = torch.zeros(flattened_batch_size, dtype=torch.int64)
-        tensor = torch.zeros((flattened_batch_size, *batch[0][0][0].shape), dtype=torch.uint8)
+class FastCollateMixup(Mixup):
+    """ Fast Collate w/ Mixup/Cutmix that applies different params to each element or whole batch
+
+    A Mixup impl that's performed while collating the batches.
+    """
+
+    def _mix_elem_collate(self, output, batch, half=False):
+        batch_size = len(batch)
+        num_elem = batch_size // 2 if half else batch_size
+        assert len(output) == num_elem
+        lam_batch, use_cutmix = self._params_per_elem(num_elem)
+        for i in range(num_elem):
+            j = batch_size - i - 1
+            lam = lam_batch[i]
+            mixed = batch[i][0]
+            if lam != 1.:
+                if use_cutmix[i]:
+                    if not half:
+                        mixed = mixed.copy()
+                    (yl, yh, xl, xh), lam = cutmix_bbox_and_lam(
+                        output.shape, lam, ratio_minmax=self.cutmix_minmax, correct_lam=self.correct_lam)
+                    mixed[:, yl:yh, xl:xh] = batch[j][0][:, yl:yh, xl:xh]
+                    lam_batch[i] = lam
+                else:
+                    mixed = mixed.astype(np.float32) * lam + batch[j][0].astype(np.float32) * (1 - lam)
+                    np.rint(mixed, out=mixed)
+            output[i] += torch.from_numpy(mixed.astype(np.uint8))
+        if half:
+            lam_batch = np.concatenate((lam_batch, np.ones(num_elem)))
+        return torch.tensor(lam_batch).unsqueeze(1)
+
+    def _mix_pair_collate(self, output, batch):
+        batch_size = len(batch)
+        lam_batch, use_cutmix = self._params_per_elem(batch_size // 2)
+        for i in range(batch_size // 2):
+            j = batch_size - i - 1
+            lam = lam_batch[i]
+            mixed_i = batch[i][0]
+            mixed_j = batch[j][0]
+            assert 0 <= lam <= 1.0
+            if lam < 1.:
+                if use_cutmix[i]:
+                    (yl, yh, xl, xh), lam = cutmix_bbox_and_lam(
+                        output.shape, lam, ratio_minmax=self.cutmix_minmax, correct_lam=self.correct_lam)
+                    patch_i = mixed_i[:, yl:yh, xl:xh].copy()
+                    mixed_i[:, yl:yh, xl:xh] = mixed_j[:, yl:yh, xl:xh]
+                    mixed_j[:, yl:yh, xl:xh] = patch_i
+                    lam_batch[i] = lam
+                else:
+                    mixed_temp = mixed_i.astype(np.float32) * lam + mixed_j.astype(np.float32) * (1 - lam)
+                    mixed_j = mixed_j.astype(np.float32) * lam + mixed_i.astype(np.float32) * (1 - lam)
+                    mixed_i = mixed_temp
+                    np.rint(mixed_j, out=mixed_j)
+                    np.rint(mixed_i, out=mixed_i)
+            output[i] += torch.from_numpy(mixed_i.astype(np.uint8))
+            output[j] += torch.from_numpy(mixed_j.astype(np.uint8))
+        lam_batch = np.concatenate((lam_batch, lam_batch[::-1]))
+        return torch.tensor(lam_batch).unsqueeze(1)
+
+    def _mix_batch_collate(self, output, batch):
+        batch_size = len(batch)
+        lam, use_cutmix = self._params_per_batch()
+        if use_cutmix:
+            (yl, yh, xl, xh), lam = cutmix_bbox_and_lam(
+                output.shape, lam, ratio_minmax=self.cutmix_minmax, correct_lam=self.correct_lam)
         for i in range(batch_size):
-            assert len(batch[i][0]) == inner_tuple_size  # all input tensor tuples must be same length
-            for j in range(inner_tuple_size):
-                targets[i + j * batch_size] = batch[i][1]
-                tensor[i + j * batch_size] += torch.from_numpy(batch[i][0][j])
-        return tensor, targets
-    elif isinstance(batch[0][0], np.ndarray):
-        targets = torch.tensor([b[1] for b in batch], dtype=torch.int64)
-        assert len(targets) == batch_size
-        tensor = torch.zeros((batch_size, *batch[0][0].shape), dtype=torch.uint8)
-        for i in range(batch_size):
-            tensor[i] += torch.from_numpy(batch[i][0])
-        return tensor, targets
-    elif isinstance(batch[0][0], torch.Tensor):
-        targets = torch.tensor([b[1] for b in batch], dtype=torch.int64)
-        assert len(targets) == batch_size
-        tensor = torch.zeros((batch_size, *batch[0][0].shape), dtype=torch.uint8)
-        for i in range(batch_size):
-            tensor[i].copy_(batch[i][0])
-        return tensor, targets
-    else:
-        assert False
-        
-        
+            j = batch_size - i - 1
+            mixed = batch[i][0]
+            if lam != 1.:
+                if use_cutmix:
+                    mixed = mixed.copy()  # don't want to modify the original while iterating
+                    mixed[:, yl:yh, xl:xh] = batch[j][0][:, yl:yh, xl:xh]
+                else:
+                    mixed = mixed.astype(np.float32) * lam + batch[j][0].astype(np.float32) * (1 - lam)
+                    np.rint(mixed, out=mixed)
+            output[i] += torch.from_numpy(mixed.astype(np.uint8))
+        return lam
+
+    def __call__(self, batch, _=None):
+        batch_size = len(batch)
+        assert batch_size % 2 == 0, 'Batch size should be even when using this'
+        half = 'half' in self.mode
+        if half:
+            batch_size //= 2
+        if isinstance(batch[0], dict):
+            batch = [(b["image"], b["label"]) for b in batch]
+        output = torch.zeros((batch_size, *batch[0][0].shape), dtype=torch.uint8)
+        if self.mode == 'elem' or self.mode == 'half':
+            lam = self._mix_elem_collate(output, batch, half=half)
+        elif self.mode == 'pair':
+            lam = self._mix_pair_collate(output, batch)
+        else:
+            lam = self._mix_batch_collate(output, batch)
+        target = torch.tensor([b[1] for b in batch], dtype=torch.int64)
+        target = mixup_target(target, self.num_classes, lam, self.label_smoothing, device='cpu')
+        target = target[:batch_size]
+        return output, target
+
+
 class PrefetchLoader:
 
     def __init__(self,
