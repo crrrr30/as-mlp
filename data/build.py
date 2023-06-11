@@ -212,7 +212,7 @@ def build_loader(config):
     #         prob=config.AUG.MIXUP_PROB, switch_prob=config.AUG.MIXUP_SWITCH_PROB, mode=config.AUG.MIXUP_MODE,
     #         label_smoothing=config.MODEL.LABEL_SMOOTHING, num_classes=config.MODEL.NUM_CLASSES)
 
-    return dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn
+    return dataset_train, dataset_val, data_loader_train, data_loader_val, None
 
 
 def build_dataset(is_train, config):
