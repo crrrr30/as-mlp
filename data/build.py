@@ -30,7 +30,7 @@ def mixup_target(target, num_classes, lam=1., smoothing=0.0, device='cuda'):
     return y1 * lam + y2 * (1. - lam)
 
 
-def fast_collate(batch):
+def collate_dict(batch):
     batch_size = len(batch)
     targets = torch.tensor([b["label"] for b in batch], dtype=torch.int64)
     assert len(targets) == batch_size
@@ -274,7 +274,7 @@ def build_loader(config):
         num_workers=config.DATA.NUM_WORKERS,
         pin_memory=config.DATA.PIN_MEMORY,
         drop_last=False,
-        collate_fn=fast_collate,
+        collate_fn=collate_dict,
         worker_init_fn=partial(_worker_init, worker_seeding='all'),
         persistent_workers=True
     )

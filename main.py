@@ -244,6 +244,7 @@ def validate(config, data_loader, model):
     model.eval()
 
     batch_time = AverageMeter()
+    data_time = AverageMeter()
     loss_meter = AverageMeter()
     acc1_meter = AverageMeter()
     acc5_meter = AverageMeter()
@@ -252,7 +253,8 @@ def validate(config, data_loader, model):
     for idx, (images, target) in enumerate(data_loader):
         images = images.cuda(non_blocking=True)
         target = target.cuda(non_blocking=True)
-
+        data = time.time()
+        
         # compute output
         output = model(images)
 
@@ -270,6 +272,7 @@ def validate(config, data_loader, model):
 
         # measure elapsed time
         batch_time.update(time.time() - end)
+        data_time.update(data - end)
         end = time.time()
 
         if idx % config.PRINT_FREQ == 0:
@@ -277,6 +280,7 @@ def validate(config, data_loader, model):
             logger.info(
                 f'Test: [{idx}/{len(data_loader)}]\t'
                 f'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                f'Datatime {data_time.val:.3f} ({data_time.avg:.3f})\t'
                 f'Loss {loss_meter.val:.4f} ({loss_meter.avg:.4f})\t'
                 f'Acc@1 {acc1_meter.val:.3f} ({acc1_meter.avg:.3f})\t'
                 f'Acc@5 {acc5_meter.val:.3f} ({acc5_meter.avg:.3f})\t'
