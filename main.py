@@ -39,7 +39,6 @@ def parse_option():
 
     # easy config modification
     parser.add_argument('--batch-size', type=int, help="batch size for single GPU")
-    parser.add_argument('--data-path', type=str, help='path to dataset')
     parser.add_argument('--zip', action='store_true', help='use zipped dataset instead of folder dataset')
     parser.add_argument('--cache-mode', type=str, default='part', choices=['no', 'full', 'part'],
                         help='no: no cache, '
@@ -73,8 +72,6 @@ def main(config):
     logger.info(str(model))
 
     optimizer = build_optimizer(config, model)
-    # if config.AMP_OPT_LEVEL != "O0":
-    #     model, optimizer = amp.initialize(model, optimizer, opt_level=config.AMP_OPT_LEVEL)
     loss_scaler = NativeScaler()
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[config.LOCAL_RANK], broadcast_buffers=False)
     model_without_ddp = model.module
