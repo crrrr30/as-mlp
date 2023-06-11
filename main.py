@@ -250,7 +250,6 @@ def validate(config, data_loader, model):
 
     end = time.time()
     for idx, (images, target) in enumerate(data_loader):
-        print(images, target)
         images = images.cuda(non_blocking=True)
         target = target.cuda(non_blocking=True)
 
